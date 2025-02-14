@@ -29,6 +29,20 @@ export class EsbuildMinifyFix {
     });
   }
 
+  private isIIFE(source: string) {
+    source = source.trim();
+    if (source.startsWith('(function(){"use strict";')) {
+      return true;
+    }
+    if (
+      source.startsWith('(function(){') &&
+      (source.endsWith('})()') || source.endsWith('})();'))
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   async minifyFix(
     compilation: Compilation,
     assets: Record<string, sources.Source>,
@@ -49,8 +63,24 @@ export class EsbuildMinifyFix {
             return false;
           }
 
+          // Skip copy-webpack-plugin files
+          // https://github.com/webpack-contrib/copy-webpack-plugin/blob/59bdbb2eb550963715782fa0855fa3c382fa0438/src/index.js#L1062
+          if (info?.copied) {
+            return false;
+          }
+
           // 处理过无需再次处理
           if (info?.EsbuildMinifyFix) {
+            return false;
+          }
+
+          // skip worker file
+          if (name.endsWith('.worker.js')) {
+            return false;
+          }
+
+          // 如果存在 sourceMap 则不处理
+          if (info?.related?.sourceMap) {
             return false;
           }
 
@@ -78,11 +108,11 @@ export class EsbuildMinifyFix {
       // 尝试不处理 无问题的代码
       if (
         !newCode.startsWith('"use strict";(self.') &&
-        !newCode.startsWith('(function(){"use strict";') &&
-        !newCode.startsWith('(self.webpack')
+        !newCode.startsWith('(self.webpack') &&
+        !this.isIIFE(newCode)
       ) {
         const bundle = new MagicString(newCode);
-        bundle.indent().prepend('!(function () {\n').append('}());');
+        bundle.prepend('!(function(){').append('}());');
         newCode = bundle.toString();
 
         const output: {
